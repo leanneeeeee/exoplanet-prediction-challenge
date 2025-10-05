@@ -2,8 +2,6 @@ import streamlit as st
 import pandas as pd
 import numpy as np
 import joblib
-import shap
-import matplotlib.pyplot as plt
 
 from model_api import load_model, predict_row
 from preprocess import load_and_clean, standardize_dataset
@@ -128,12 +126,6 @@ for name, path in BUILT_IN_DATASETS.items():
         except Exception as e:
             st.warning(f"⚠️ Could not load {name}: {e}")
 
-# Sidebar quick guide
-with st.sidebar.container(border=True):
-    st.markdown("#### 🛰️ Quick Guide")
-    st.markdown("- Pick a dataset (built-in or upload)\n- Click **Predict**\n- (Optional) enable **Explainability** to view SHAP")
-    st.markdown("<span class='small-muted'>Tip: SHAP is compute-heavy; toggle it only when needed.</span>", unsafe_allow_html=True)
-
 # ---------------------------
 # Load built-in NASA datasets
 # ---------------------------
@@ -210,11 +202,8 @@ with tab1:
             st.error(f"Missing required columns: {missing}")
         else:
             # Optional explainability toggle
-            enable_shap = st.toggle("🧠 Enable Explainability (SHAP)", value=False, help="Compute global & local explanations")
             if st.button("🔮 Predict Dataset", use_container_width=True):
                 try:
-                    '''FEATURES = model.get_booster().feature_names
-                    preds, probs = predict_row(model, df_new, FEATURES)'''
                     # ✅ Automatically handle feature names for any model type
                     try:
                         if hasattr(model, "get_booster"):
@@ -255,40 +244,7 @@ with tab1:
                     st.subheader("📊 Prediction Results")
                     st.dataframe(df_new[["pred_label"] + FEATURES], use_container_width=True)
 
-                    # KPI row
-                    if "label" in df_new.columns and not df_new["label"].isna().all():
-                        y_true = df_new["label"].astype(int)
-                        y_pred = df_new["pred_label"].astype(int)
-                        acc = accuracy_score(y_true, y_pred)
-                        k1, k2 = st.columns(2)
-                        with k1: st.metric("Accuracy", f"{acc*100:.2f}%")
-                        with k2: st.bar_chart(df_new['pred_label'].value_counts(), use_container_width=True)
-                        report = classification_report(y_true, y_pred, output_dict=False)
-                        with st.expander("Detailed classification report"):
-                            st.text(report)
-                    else:
-                        st.info("No ground-truth labels found; accuracy not computed.")
-
-
-                    # SHAP Explainability (optional)
-                    if enable_shap:
-                        with st.spinner("Computing SHAP values..."):
-                            try:
-                                explainer = shap.TreeExplainer(model)
-                                shap_values = explainer.shap_values(df_new[FEATURES])
-
-                                with st.expander("🌍 Global Feature Importance", expanded=True):
-                                    fig1, ax1 = plt.subplots()
-                                    shap.summary_plot(shap_values, df_new[FEATURES], show=False)
-                                    st.pyplot(fig1, use_container_width=True)
-
-                                with st.expander("🔬 Explain a Single Prediction"):
-                                    idx = st.number_input("Sample index", 0, len(df_new)-1, 0)
-                                    fig2, ax2 = plt.subplots()
-                                    shap.waterfall_plot(shap.Explanation(values=shap_values[idx], base_values=getattr(explainer, 'expected_value', 0), data=df_new.iloc[idx]))
-                                    st.pyplot(fig2, use_container_width=True)
-                            except Exception as e:
-                                st.warning(f"SHAP visualization unavailable: {e}")
+                    
 
                     # Download
                     csv = df_new.to_csv(index=False).encode('utf-8')
@@ -454,7 +410,18 @@ with tab3:
     st.subheader("🧮 Manual Input Prediction")
     cols = st.columns(2)
     vals = {}
-    FEATURES = model.get_booster().feature_names
+    try:
+        if hasattr(model, "get_booster"):
+            FEATURES = model.get_booster().feature_names
+        elif hasattr(model, "feature_names_in_"):
+            FEATURES = list(model.feature_names_in_)
+        else:
+            # Fallback: use the pre-defined feature list
+            from preprocess import KEEP_FEATURES
+            FEATURES = KEEP_FEATURES
+    except Exception:
+        from preprocess import KEEP_FEATURES
+        FEATURES = KEEP_FEATURES
     
     for i, f in enumerate(FEATURES):
         with cols[i % 2]:
