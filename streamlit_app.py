@@ -8,6 +8,7 @@ import matplotlib.pyplot as plt
 from model_api import load_model, predict_row
 from preprocess import load_and_clean, standardize_dataset
 import io
+import os
 
 # ---------------------------
 # App Configuration + Theme
@@ -156,7 +157,7 @@ for name, path in BUILT_IN_DATASETS.items():
 # ---------------------------
 # Tabs for main workflows
 # ---------------------------
-tab1, tab2, tab3 = st.tabs(["🔍 Predict", "🔁 Retrain", "🧮 Manual Input"])
+tab1, tab2, tab3 = st.tabs(["🔍 Predict", "🎮 Guess Planet Type", "🧮 Manual Input"])
 
 # ---------------------------
 # PREDICT TAB
@@ -196,6 +197,11 @@ with tab1:
 
         with st.expander("👀 Preview dataset (first 8 rows)"):
             st.dataframe(df_new.head(8), use_container_width=True)
+        
+        #@TEST
+        if "row_id" not in df_new.columns:
+            df_new["row_id"] = df_new.index
+        #@ENDTEST
 
         df_new, mission = standardize_dataset(df_new, FEATURES)
         missing = [f for f in FEATURES if f not in df_new.columns]
@@ -226,6 +232,8 @@ with tab1:
                     preds, probs = predict_row(model, df_new, FEATURES)
 
                     df_new["pred_label"] = preds
+
+              
 
                     # Label mapping for accuracy
                     if "label" not in df_new.columns:
@@ -261,6 +269,7 @@ with tab1:
                     else:
                         st.info("No ground-truth labels found; accuracy not computed.")
 
+
                     # SHAP Explainability (optional)
                     if enable_shap:
                         with st.spinner("Computing SHAP values..."):
@@ -288,66 +297,155 @@ with tab1:
                 except Exception as e:
                     st.error(f"Prediction failed: {e}")
 
+
+
+
 # ---------------------------
-# RETRAIN TAB
+# 🎮 Exoplanet Type Guessing Game (NEW TAB)
 # ---------------------------
 with tab2:
-    st.subheader("🔁 Retrain Model")
+    st.subheader("🪐 Exoplanet Type Guessing Game")
 
-    if len(st.session_state.datasets) == 0:
-        st.info("Upload or use built-in datasets from the Predict tab to retrain the model.")
+    # --- Use session state to persist predictions across reruns ---
+    if "predicted_df" not in st.session_state:
+        st.session_state.predicted_df = pd.DataFrame()
+
+    # Save predictions to session state after running Predict Dataset
+    if not df_new.empty and "pred_label" in df_new.columns:
+        st.session_state.predicted_df = df_new.copy()
+
+    df_game = st.session_state.predicted_df  # restore predictions
+
+    if df_game.empty:
+        st.info("No predictions available yet. Please run 🔮 Predict Dataset first.")
     else:
-        retrain_datasets = st.multiselect(
-            "Select one or more datasets to retrain the model:",
-            list(st.session_state.datasets.keys())
-        )
-
-        # Training controls
-        colA, colB = st.columns([1,1])
-        with colA:
-            do_shuffle = st.checkbox("Shuffle data", value=True)
-        with colB:
-            st.caption("Retraining uses standardized features only.")
-
-        if st.button("⚙️ Retrain Model", use_container_width=True):
-            if len(retrain_datasets) == 0:
-                st.warning("Please select at least one dataset.")
+        # --- Add planet type based on radius rules ---
+        def classify_planet_type(radius):
+            if radius > 6:
+                return "Gas Giant"
+            elif 3 < radius <= 6:
+                return "Neptunian"
+            elif 1.5 < radius <= 3:
+                return "Super-Earth"
             else:
-                try:
-                    X_total, y_total = [], []
-                    progress = st.progress(0)
-                    for i, name in enumerate(retrain_datasets):
-                        df_data = st.session_state.datasets[name]["df"]
-                        df_std, _ = standardize_dataset(df_data, FEATURES)
-                        if "label" in df_std.columns:
-                            X_total.append(df_std[FEATURES])
-                            y_total.append(df_std["label"])
-                            st.success(f"✅ Included labeled dataset: {name}")
-                        else:
-                            X_total.append(df_std[FEATURES])
-                            st.info(f"ℹ️ Included unlabeled dataset: {name}")
-                        progress.progress(int((i+1)/max(len(retrain_datasets),1)*100))
+                return "Terrestrial"
 
-                    if not X_total:
-                        st.error("No valid datasets found.")
-                    else:
-                        X_all = pd.concat(X_total)
-                        if do_shuffle:
-                            X_all = X_all.sample(frac=1.0, random_state=42).reset_index(drop=True)
-                        y_all = pd.concat(y_total) if y_total else np.zeros(len(X_all))
+        df_game["planet_type"] = df_game["koi_prad"].apply(classify_planet_type)
 
+        with st.expander("🛈 What do these columns mean?", expanded=True):
+            st.markdown("""
+            - **koi_prad** → Planet radius in Earth radii  
+            - **koi_period** → Orbital period in days  
+            - **koi_sma** → Semi-major axis of orbit in AU  
+            - **koi_teq** → Planet equilibrium temperature in Kelvin  
+            """)
+
+        # --- Select top 5 confirmed / high-probability candidates ---
+        df_game["prob_confirmed"] = df_game.get("pred_prob_confirmed", 0.0)
+        top5 = df_game[df_game["pred_label"].isin([1,2])].nlargest(5, "prob_confirmed")
+
+        if top5.empty:
+            st.warning("No confirmed or high-probability candidates available to play.")
+        else:
+            st.markdown("**Top 5 Most Likely Planets:** (use Row_ID to pick)")
+            display_cols = ["row_id", "koi_prad", "koi_period", "koi_sma", "koi_teq"]
+            st.dataframe(top5[display_cols], use_container_width=True)
+
+            # --- User selects planet by original row_id ---
+            chosen_rowid = st.selectbox("Pick a planet to guess (Row ID)", top5["row_id"].tolist())
+            guessed_type = st.selectbox(
+                "Your guess for planet type",
+                ["Terrestrial", "Super-Earth", "Neptunian", "Gas Giant"]
+            )
+
+            # Reveal (local image + italic fun fact)
+            if st.button("✅ Check Guess", use_container_width=True):
+                # --- safely fetch the selected planet row ---
+                src = playable if 'playable' in locals() else st.session_state.get("predicted_df", pd.DataFrame())
+                if src is None or src.empty:
+                    st.error("No planet data available. Run Predict first.")
+                else:
+                    if "row_id" not in src.columns:
+                        src = src.reset_index(drop=False).rename(columns={"index": "row_id"})
+                    rid = st.session_state.get("game_selected_rowid")
+                    sel = src[src["row_id"] == rid]
+                    if sel.empty:
+                        sel = src.iloc[[0]]
+                    planet = sel.iloc[0]
+
+                    # --- tiny local classifier (avoids relying on outer scope) ---
+                    def _classify(radius):
                         try:
-                            with st.spinner("⏳ Retraining model..."):
-                                # incremental_update may come from your training utilities
-                                model = incremental_update(model, X_all, y_all)  # type: ignore
-                                joblib.dump(model, f"models/{model_type.lower()}_model.joblib")
-                            st.toast("Model retrained and saved.")
-                            st.success("🎉 Model retrained and saved successfully!")
-                        except NameError:
-                            st.error("`incremental_update` is not defined. Please import or implement it in your training pipeline.")
+                            r = float(radius)
+                        except Exception:
+                            return "Unknown"
+                        return ("Gas Giant" if r > 6 else
+                                "Neptunian" if r > 3 else
+                                "Super-Earth" if r > 1.5 else
+                                "Terrestrial")
 
-                except Exception as e:
-                    st.error(f"Retraining failed: {e}")
+                    actual_type = _classify(planet.get("koi_prad", np.nan))
+                    st.markdown(f"**Your Guess:** {guessed_type or '—'}")
+                    st.markdown(f"**Actual Type:** {actual_type}")
+
+                    if guessed_type and actual_type in guessed_type:
+                        st.success("🎉 Correct! Nice instincts, planet hunter.")
+                    else:
+                        st.warning("❌ Not quite. Check the hints and try another!")
+
+                    IMG = {
+                        "Terrestrial": ("images/terrestrial.jpg", "*Some terrestrial exoplanets might have molten surfaces like lava worlds.*"),
+                        "Super-Earth": ("images/superearth.jpg", "*Super-Earths could have crushing gravity and thick atmospheres.*"),
+                        "Neptunian":   ("images/neptunian.jpg", "*Neptunian worlds have hazy skies and fierce supersonic winds.*"),
+                        "Gas Giant":   ("images/gasgiant.jpg", "*Gas giants can have storms that last for centuries, like Jupiter’s Great Red Spot.*"),
+                        "Unknown":     (None, "*Not enough info to classify this one.*")
+                    }
+                    path, funfact = IMG.get(actual_type, (None, "*No image available.*"))
+                    
+                    # --- centered image + centered italic caption ---
+                    IMG_WIDTH = 360  # tweak to your taste
+
+                    if path and os.path.exists(path):
+                        col_l, col_c, col_r = st.columns([1, 2, 1])
+                        with col_c:
+                            st.image(path, width=IMG_WIDTH)
+                            st.markdown(
+                                f"<em style='display:block; text-align:center; margin-top:6px;'>{funfact.strip('*')}</em>",
+                                unsafe_allow_html=True
+                            )
+                    else:
+                        col_l, col_c, col_r = st.columns([1, 2, 1])
+                        with col_c:
+                            st.info("Image not found. Place images here: /images/terrestrial.jpg, superearth.jpg, neptunian.jpg, gasgiant.jpg")
+                            st.markdown(
+                                f"<em style='display:block; text-align:center; margin-top:6px;'>{funfact.strip('*')}</em>",
+                                unsafe_allow_html=True
+                            )
+
+
+
+
+                # --- Show radius classification table ---
+                st.markdown("### How is type classified based on radius?")
+                st.markdown("""
+                | Radius (Earth radii) | Planet Type |
+                |---------------------|-------------|
+                | ≤ 1.5               | Terrestrial |
+                | 1.5 – 3             | Super-Earth |
+                | 3 – 6               | Neptunian   |
+                | > 6                 | Gas Giant  |
+                """)
+
+                # --- Show supporting features ---
+                st.markdown(f"""
+                **Supporting Features for Classification:**  
+                - Radius (Earth radii): {planet['koi_prad']:.2f}  
+                - Orbital Period (days): {planet['koi_period']:.2f}  
+                - Semi-major Axis (AU): {planet['koi_sma']:.3f}  
+                - Equilibrium Temperature (K): {planet['koi_teq']:.0f}  
+                - ML Prediction Class (0=FP,1=Cand,2=Conf): {planet['pred_label']}
+                """)
+
 
 # ---------------------------
 # MANUAL INPUT TAB
@@ -356,7 +454,8 @@ with tab3:
     st.subheader("🧮 Manual Input Prediction")
     cols = st.columns(2)
     vals = {}
-
+    FEATURES = model.get_booster().feature_names
+    
     for i, f in enumerate(FEATURES):
         with cols[i % 2]:
             safe_key = f"num_input_{i}_{f.replace(' ', '_').replace('.', '_')}"
@@ -370,6 +469,7 @@ with tab3:
     if st.button("🔮 Predict Manual Input", use_container_width=True):
         try:
             row = pd.DataFrame([vals])
+            
             pred, proba = predict_row(model, row, FEATURES)
             st.success(f"Predicted Class: {pred[0]}")
             st.bar_chart(
