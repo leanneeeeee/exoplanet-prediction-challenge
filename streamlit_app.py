@@ -11,7 +11,7 @@ import os
 # ---------------------------
 # App Configuration + Theme
 # ---------------------------
-st.set_page_config(page_title="🪐 ExoScan — Exoplanet Classifier", page_icon="🪐", layout="wide")
+st.set_page_config(page_title="🪐 Exoplanet Prediction Challenge", page_icon="🪐", layout="wide")
 
 # Global aesthetic styling (dark cosmic theme)
 st.markdown(
@@ -80,8 +80,8 @@ def robust_read_csv(uploaded_file):
 # ---------------------------
 # App Title & Model Setup
 # ---------------------------
-st.title("🪐 ExoScan — Exoplanet Classifier")
-st.caption("Explore exoplanets across Kepler, K2, and TESS missions — or upload your own dataset to retrain and predict.")
+st.title("🪐 Exoplanet Prediction Challenge")
+st.caption("Explore, predict, and play with exoplanet data from NASA missions — Kepler, K2, and TESS.")
 
 # ---------------------------
 # Caching and Lazy Loading
@@ -260,7 +260,8 @@ with tab1:
 # 🎮 Exoplanet Type Guessing Game (NEW TAB)
 # ---------------------------
 with tab2:
-    st.subheader("🪐 Exoplanet Type Guessing Game")
+    st.subheader("🪐 Exoplanet Type Guessing Game\n")
+
 
     # --- Use session state to persist predictions across reruns ---
     if "predicted_df" not in st.session_state:
@@ -288,11 +289,11 @@ with tab2:
 
         df_game["planet_type"] = df_game["koi_prad"].apply(classify_planet_type)
 
+        
         with st.expander("🛈 What do these columns mean?", expanded=True):
             st.markdown("""
             - **koi_prad** → Planet radius in Earth radii  
-            - **koi_period** → Orbital period in days  
-            - **koi_sma** → Semi-major axis of orbit in AU  
+            - **koi_period** → Orbital period in days
             - **koi_teq** → Planet equilibrium temperature in Kelvin  
             """)
 
@@ -303,8 +304,40 @@ with tab2:
         if top5.empty:
             st.warning("No confirmed or high-probability candidates available to play.")
         else:
+            # 💡 Hover-only Tips button (place above "Top 5 Most Likely Planets")
+            st.markdown("""
+            <div class="tips-wrap">
+            <span class="tips-btn">💡 Tips</span>
+            <div class="tips-pop">
+                <div class="tips-title">Radius → Type</div>
+                <table class="tips-table">
+                <thead><tr><th>Radius (⨁)</th><th>Planet Type</th></tr></thead>
+                <tbody>
+                    <tr><td>≤ 1.5</td><td>Terrestrial</td></tr>
+                    <tr><td>1.5 – 3</td><td>Super-Earth</td></tr>
+                    <tr><td>3 – 6</td><td>Neptunian</td></tr>
+                    <tr><td>&gt; 6</td><td>Gas Giant</td></tr>
+                </tbody>
+                </table>
+            </div>
+            </div>
+            <style>
+            .tips-wrap{position:relative;display:flex;justify-content:flex-end;margin:6px 0 4px;}
+            .tips-btn{background:#0e1722;border:1px solid #1d2a36;color:#9bd7d1;
+                        padding:4px 10px;border-radius:999px;font-size:0.9rem;cursor:default;}
+            .tips-pop{position:absolute;top:36px;right:0;background:#0f1623;border:1px solid #1f2a36;
+                        border-radius:12px;padding:10px 12px;width:280px;box-shadow:0 8px 30px rgba(0,0,0,.4);
+                        opacity:0;visibility:hidden;pointer-events:none;transform:translateY(-4px);
+                        transition:opacity .15s ease, transform .15s ease, visibility .15s ease; z-index:9999;}
+            .tips-wrap:hover .tips-pop{opacity:1;visibility:visible;pointer-events:auto;transform:translateY(0);}
+            .tips-title{color:#9bd7d1;font-weight:600;margin-bottom:6px;}
+            .tips-table{width:100%;border-collapse:collapse;font-size:.9rem;}
+            .tips-table th,.tips-table td{border-bottom:1px solid #223041;padding:6px 8px;text-align:center;}
+            </style>
+            """, unsafe_allow_html=True)
+
             st.markdown("**Top 5 Most Likely Planets:** (use Row_ID to pick)")
-            display_cols = ["row_id", "koi_prad", "koi_period", "koi_sma", "koi_teq"]
+            display_cols = ["koi_prad", "koi_period", "koi_teq"]
             st.dataframe(top5[display_cols], use_container_width=True)
 
             # --- User selects planet by original row_id ---
@@ -350,10 +383,10 @@ with tab2:
                         st.warning("❌ Not quite. Check the hints and try another!")
 
                     IMG = {
-                        "Terrestrial": ("images/terrestrial.jpg", "*Some terrestrial exoplanets might have molten surfaces like lava worlds.*"),
-                        "Super-Earth": ("images/superearth.jpg", "*Super-Earths could have crushing gravity and thick atmospheres.*"),
-                        "Neptunian":   ("images/neptunian.jpg", "*Neptunian worlds have hazy skies and fierce supersonic winds.*"),
-                        "Gas Giant":   ("images/gasgiant.jpg", "*Gas giants can have storms that last for centuries, like Jupiter’s Great Red Spot.*"),
+                        "Terrestrial": ("images/terrestrial.jpg", "*Fun Fact: Some terrestrial exoplanets might have molten surfaces like lava worlds.*"),
+                        "Super-Earth": ("images/superearth.jpg", "*Fun Fact: Super-Earths could have crushing gravity and thick atmospheres.*"),
+                        "Neptunian":   ("images/neptunian.jpg", "*Fun Fact: Neptunian worlds have hazy skies and fierce supersonic winds.*"),
+                        "Gas Giant":   ("images/gasgiant.jpg", "*Fun Fact: Gas giants can have storms that last for centuries, like Jupiter’s Great Red Spot.*"),
                         "Unknown":     (None, "*Not enough info to classify this one.*")
                     }
                     path, funfact = IMG.get(actual_type, (None, "*No image available.*"))
@@ -377,30 +410,6 @@ with tab2:
                                 f"<em style='display:block; text-align:center; margin-top:6px;'>{funfact.strip('*')}</em>",
                                 unsafe_allow_html=True
                             )
-
-
-
-
-                # --- Show radius classification table ---
-                st.markdown("### How is type classified based on radius?")
-                st.markdown("""
-                | Radius (Earth radii) | Planet Type |
-                |---------------------|-------------|
-                | ≤ 1.5               | Terrestrial |
-                | 1.5 – 3             | Super-Earth |
-                | 3 – 6               | Neptunian   |
-                | > 6                 | Gas Giant  |
-                """)
-
-                # --- Show supporting features ---
-                st.markdown(f"""
-                **Supporting Features for Classification:**  
-                - Radius (Earth radii): {planet['koi_prad']:.2f}  
-                - Orbital Period (days): {planet['koi_period']:.2f}  
-                - Semi-major Axis (AU): {planet['koi_sma']:.3f}  
-                - Equilibrium Temperature (K): {planet['koi_teq']:.0f}  
-                - ML Prediction Class (0=FP,1=Cand,2=Conf): {planet['pred_label']}
-                """)
 
 
 # ---------------------------
