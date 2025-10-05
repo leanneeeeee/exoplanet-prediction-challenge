@@ -84,6 +84,24 @@ def robust_read_csv(uploaded_file):
 st.title("🪐 ExoScan — Exoplanet Classifier")
 st.caption("Explore exoplanets across Kepler, K2, and TESS missions — or upload your own dataset to retrain and predict.")
 
+# ---------------------------
+# Caching and Lazy Loading
+# ---------------------------
+
+@st.cache_resource(show_spinner=False)
+def load_cached_model(model_name: str = "xgb"):
+    """Load ML model once and cache it."""
+    with st.spinner("🚀 Loading model..."):
+        model = api_load_model(model_name)
+    return model
+
+@st.cache_data(show_spinner=False)
+def load_cached_dataset(path: str = "data/merged.csv"):
+    """Load and preprocess dataset once and cache it."""
+    with st.spinner("🧠 Loading and preprocessing dataset..."):
+        df, FEATURES = load_and_clean(path)
+    return df, FEATURES
+
 st.sidebar.header("⚙️ Configuration")
 model_type = st.sidebar.selectbox("Choose model:", ["XGBoost", "Random Forest", "Stacking"], help="Switch between trained model variants")
 model = load_model("xgb" if model_type == "XGBoost" else "rf" if model_type == "Random Forest" else "stack")
